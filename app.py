@@ -16,7 +16,7 @@ from threading import Thread
 
 # 导入相关模块
 try:
-    import torch
+    
     from utils import batch_inference
     HAS_LOCAL_MODEL = True
 except ImportError:
@@ -24,7 +24,7 @@ except ImportError:
     print("警告: 未能导入本地ONNX模型模块，本地模式将不可用")
 
 app = Flask(__name__)
-app.secret_key = 'fixed_secret_key_for_persistence'  # 使用固定密钥保证session持久化
+app.secret_key = 'fixed_secret_key_for_persistence'  
 
 # 定义数据库路径
 DB_PATH = 'formula_history.db'
@@ -50,8 +50,8 @@ def init_onnx_model():
         print("正在初始化ONNX模型...")
         # 初始化OCR模型
         ocr_model = OcrModel()
-        
-        # 将模型和数据移动到GPU
+        import torch
+        #将模型和数据移动到GPU
         if torch.cuda.is_available():
             print("Using CUDA acceleration")
             ocr_model.model = ocr_model.model.to('cuda')
@@ -234,11 +234,6 @@ def cleanup_temp_files():
 # 应用启动时执行清理
 cleanup_temp_files()
 
-# 直接设置API配置
-config = {
-    "SIMPLETEX_APP_ID": "xxx",
-    "SIMPLETEX_APP_SECRET": "xxx"
-}
 
 def random_str(randomlength=16):
     """Generate a random string"""
@@ -260,22 +255,51 @@ def get_req_data(req_data, appid, secret):
 def recognize_with_api(image_path):
     """使用API进行公式识别"""
     try:
-        # 检查API配置是否完整
-        if not config['SIMPLETEX_APP_ID'] or not config['SIMPLETEX_APP_SECRET']:
-            return {"status": False, "msg": 'API配置信息不完整'} 
+        from openai import OpenAI
         
-        # API call logic
-        data = {}
-        header, data = get_req_data(data, config['SIMPLETEX_APP_ID'], config['SIMPLETEX_APP_SECRET'])
+        # 初始化OpenAI客户端
+        client = OpenAI(
+            base_url="https://ark.cn-beijing.volces.com/api/v3",
+            api_key="xxxxxxxxxxx",  # 这里需要替换为实际的API key
+        )
         
-        # 使用with语句确保文件在使用后正确关闭
-        with open(image_path, 'rb') as f:
-            img_file = {"file": f}
-            res = requests.post("https://server.simpletex.cn/api/latex_ocr", 
-                              files=img_file, data=data, headers=header)
+        # 将图片转换为Base64
+        with open(image_path, "rb") as image_file:
+            base64_image = base64.b64encode(image_file.read()).decode('utf-8')
         
-        result = json.loads(res.text)
-        return result
+        # 调用API
+        response = client.chat.completions.create(
+            model="doubao-vision-lite-32k-241015",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "识别图像中的数学公式，并将其转换为LaTeX格式，你的回复只能有latex公式，不能有其他任何描述。"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{base64_image}"
+                            },
+                        },
+                    ],
+                }
+            ],
+        )
+        
+        # 提取LaTeX内容
+        latex = response.choices[0].message.content
+        latex = latex.replace('\\(', '').replace('\\)', '')  # 移除LaTeX定界符
+        if latex.startswith('$') and latex.endswith('$'):
+            latex = latex[1:-1]  
+        
+        # 构造与原有格式兼容的返回结果
+        return {
+            "status": True,
+            "res": {
+                "latex": latex,
+                "conf": 0.95  # 设置一个较高的置信度
+            }
+        }
     except Exception as e:
         return {"status": False, "msg": f'API识别错误: {str(e)}'}
 

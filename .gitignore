@@ -1,5 +1,3 @@
-# 排除虚拟环境
-my_venv/
 
 #排除模型
 models/
@@ -21,3 +19,7 @@ __pycache__/
 
 # 排除日志文件
 *.log
+
+#排除旧版api程序
+app.py.bak
+llm.py
